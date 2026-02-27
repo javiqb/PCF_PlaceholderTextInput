@@ -1,0 +1,20 @@
+# Node / PCF
+node_modules/
+dist/
+out/
+*.log
+
+# PCF / MSBuild outputs
+bin/
+obj/
+
+# VS / VS Code
+.vs/
+.vscode/
+*.user
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+

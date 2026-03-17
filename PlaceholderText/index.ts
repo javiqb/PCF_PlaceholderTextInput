@@ -9,7 +9,9 @@ export class PlaceholderText implements ComponentFramework.StandardControl<IInpu
 
   private notifyOutputChanged!: () => void;
   private currentValue = "";
+  private lastContextValue = "";
   private isMultiline = false;
+  private isComposing = false;
 
   public init(
     _context: ComponentFramework.Context<IInputs>,
@@ -20,64 +22,77 @@ export class PlaceholderText implements ComponentFramework.StandardControl<IInpu
     this.container = container;
     this.notifyOutputChanged = notifyOutputChanged;
 
-    // Wrapper that draws the field background/border (chrome)
     this.host = document.createElement("div");
     this.host.className = "evidi-field-host";
 
-    // Single line input
     this.input = document.createElement("input");
     this.input.type = "text";
     this.input.className = "evidi-placeholder-input";
-    this.input.addEventListener("input", () => {
-      this.currentValue = this.input.value;
-      this.notifyOutputChanged();
+
+    this.input.addEventListener("input", this.handleInput);
+    this.input.addEventListener("compositionstart", () => {
+      this.isComposing = true;
+    });
+    this.input.addEventListener("compositionend", () => {
+      this.isComposing = false;
+      this.handleInput();
     });
 
-    // Multi line textarea
     this.textarea = document.createElement("textarea");
     this.textarea.className = "evidi-placeholder-textarea";
-    this.textarea.addEventListener("input", () => {
-      this.currentValue = this.textarea.value;
-      this.notifyOutputChanged();
+
+    this.textarea.addEventListener("input", this.handleInput);
+    this.textarea.addEventListener("compositionstart", () => {
+      this.isComposing = true;
+    });
+    this.textarea.addEventListener("compositionend", () => {
+      this.isComposing = false;
+      this.handleInput();
     });
 
-    // Default render
     this.host.appendChild(this.input);
     this.container.appendChild(this.host);
   }
 
+  private handleInput = (): void => {
+    if (this.isComposing) return;
+
+    const activeControl = this.isMultiline ? this.textarea : this.input;
+    this.currentValue = activeControl.value;
+    this.notifyOutputChanged();
+  };
+
   public updateView(context: ComponentFramework.Context<IInputs>): void {
     const value = context.parameters.value.raw ?? "";
-
-    // If you added the "multiline" input (TwoOptions) in manifest:
+    const placeholder = context.parameters.placeholder.raw ?? "";
     const shouldBeMultiline = context.parameters.multiline?.raw === true;
 
-    // Swap inside host
     if (shouldBeMultiline !== this.isMultiline) {
       this.isMultiline = shouldBeMultiline;
       this.host.replaceChildren(this.isMultiline ? this.textarea : this.input);
     }
 
-    // Placeholder
-    const placeholder = context.parameters.placeholder.raw ?? "";
-    if (this.isMultiline) this.textarea.placeholder = placeholder;
-    else this.input.placeholder = placeholder;
+    const activeControl = this.isMultiline ? this.textarea : this.input;
 
-    // Rows for textarea
+    activeControl.placeholder = placeholder;
+    activeControl.disabled = context.mode.isControlDisabled;
+
     if (this.isMultiline) {
       const rows = context.parameters.rows.raw ?? 3;
       this.textarea.rows = Math.max(1, rows);
     }
 
-    // Value + disabled
-    this.currentValue = value;
-    if (this.isMultiline) {
-      if (this.textarea.value !== value) this.textarea.value = value;
-      this.textarea.disabled = context.mode.isControlDisabled;
-    } else {
-      if (this.input.value !== value) this.input.value = value;
-      this.input.disabled = context.mode.isControlDisabled;
+    const isFocused = document.activeElement === activeControl;
+
+    // Only sync external value into the DOM when user is not actively editing.
+    // This prevents older updateView values from overwriting fast typing.
+    if (!isFocused && activeControl.value !== value) {
+      activeControl.value = value;
+      this.currentValue = value;
     }
+
+    // Track the last value received from the framework
+    this.lastContextValue = value;
   }
 
   public getOutputs(): IOutputs {
@@ -85,6 +100,9 @@ export class PlaceholderText implements ComponentFramework.StandardControl<IInpu
   }
 
   public destroy(): void {
+    this.input.removeEventListener("input", this.handleInput);
+    this.textarea.removeEventListener("input", this.handleInput);
+
     this.input?.remove();
     this.textarea?.remove();
     this.host?.remove();
